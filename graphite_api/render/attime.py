@@ -11,17 +11,17 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License."""
-import pytz
-
 from datetime import datetime, timedelta
 from time import daylight
+
+import pytz
 
 months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
           'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 weekdays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 
-def parseATTime(s, tzinfo=None):
+def parseATTime(s, tzinfo=None, now=None):
     if tzinfo is None:
         from ..app import app
         tzinfo = pytz.timezone(app.config['TIME_ZONE'])
@@ -46,11 +46,13 @@ def parseATTime(s, tzinfo=None):
         offset = '-' + offset
     else:
         ref, offset = s, ''
-    return (parseTimeReference(ref) +
+    return (parseTimeReference(ref or now) +
             parseTimeOffset(offset)).astimezone(tzinfo)
 
 
 def parseTimeReference(ref):
+    if isinstance(ref, datetime):
+        return ref
     if not ref or ref == 'now':
         return datetime.utcnow().replace(tzinfo=pytz.utc)
 

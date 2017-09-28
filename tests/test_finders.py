@@ -1,17 +1,26 @@
+import gzip
 import os
 import random
+import shutil
 import time
 
 from . import TestCase, WHISPER_DIR
+
+try:
+    from unittest.mock import patch
+except ImportError:
+    from mock import patch
 
 from graphite_api.app import app
 from graphite_api.intervals import Interval, IntervalSet
 from graphite_api.node import LeafNode, BranchNode
 from graphite_api.storage import Store
 from graphite_api._vendor import whisper
+from graphite_api.finders.whisper import scandir
 
 
 class FinderTest(TestCase):
+
     def test_custom_finder(self):
         store = Store([DummyFinder()])
         nodes = list(store.find("foo"))
@@ -71,10 +80,12 @@ class DummyFinder(object):
 
 
 class WhisperFinderTest(TestCase):
-    _listdir_counter = 0
-    _original_listdir = os.listdir
 
-    def test_whisper_finder(self):
+    def scandir_mock(d):
+        return scandir(d)
+
+    @patch('graphite_api.finders.whisper.scandir', wraps=scandir_mock)
+    def test_whisper_finder(self, scandir_mocked):
         for db in (
             ('whisper_finder', 'foo.wsp'),
             ('whisper_finder', 'foo', 'bar', 'baz.wsp'),
@@ -85,28 +96,155 @@ class WhisperFinderTest(TestCase):
                 os.makedirs(os.path.dirname(db_path))
             whisper.create(db_path, [(1, 60)])
 
-        def listdir_mock(d):
-            self._listdir_counter += 1
-            return self._original_listdir(d)
-
         try:
-            os.listdir = listdir_mock
             store = app.config['GRAPHITE']['store']
-
-            self._listdir_counter = 0
+            scandir_mocked.call_count = 0
             nodes = store.find('whisper_finder.foo')
             self.assertEqual(len(list(nodes)), 2)
-            self.assertEqual(self._listdir_counter, 0)
+            self.assertEqual(scandir_mocked.call_count, 0)
 
-            self._listdir_counter = 0
+            scandir_mocked.call_count = 0
             nodes = store.find('whisper_finder.foo.bar.baz')
             self.assertEqual(len(list(nodes)), 1)
-            self.assertEqual(self._listdir_counter, 0)
-
-            self._listdir_counter = 0
+            self.assertEqual(scandir_mocked.call_count, 0)
+            scandir_mocked.call_count = 0
             nodes = store.find('whisper_finder.*.ba?.{baz,foo}')
             self.assertEqual(len(list(nodes)), 2)
-            self.assertEqual(self._listdir_counter, 5)
+            self.assertEqual(scandir_mocked.call_count, 5)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{foo,bar}.{baz,bar}.{baz,foo}')
+            self.assertEqual(len(list(nodes)), 2)
+            self.assertEqual(scandir_mocked.call_count, 5)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{foo}.bar.*')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 2)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.foo.{ba{r,z},baz}.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{foo,garbage}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{fo{o}}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.foo{}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{fo,ba}{o}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{fo,ba}{o,o}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('whisper_finder.{fo,ba}{o,z}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
 
         finally:
-            os.listdir = self._original_listdir
+            scandir_mocked.call_count = 0
+
+    @patch('graphite_api.finders.whisper.scandir', wraps=scandir_mock)
+    def test_gzipped_whisper_finder(self, scandir_mocked):
+        for db in (
+            ('gzwhisper_finder', 'foo.wsp'),
+            ('gzwhisper_finder', 'foo', 'bar', 'baz.wsp'),
+            ('gzwhisper_finder', 'bar', 'baz', 'baz.wsp'),
+        ):
+            db_path = os.path.join(WHISPER_DIR, *db)
+            if not os.path.exists(os.path.dirname(db_path)):
+                os.makedirs(os.path.dirname(db_path))
+            whisper.create(db_path, [(1, 60)])
+            with open(db_path, 'rb') as f_in:
+                f_out = gzip.open("%s.gz" % db_path, 'wb')
+                shutil.copyfileobj(f_in, f_out)
+                f_out.close()
+            os.remove(db_path)
+
+        try:
+            store = app.config['GRAPHITE']['store']
+            scandir_mocked.call_count = 0
+            nodes = store.find('gzwhisper_finder.foo')
+            self.assertEqual(len(list(nodes)), 2)
+            self.assertEqual(scandir_mocked.call_count, 0)
+
+            scandir_mocked.call_count = 0
+            nodes = store.find('gzwhisper_finder.foo{}.bar.baz')
+            self.assertEqual(len(list(nodes)), 1)
+            self.assertEqual(scandir_mocked.call_count, 1)
+
+        finally:
+            scandir_mocked.call_count = 0
+
+    def test_globstar(self):
+        store = app.config['GRAPHITE']['store']
+        query = "x.**.x"
+        hits = ["x.x", "x._.x", "x._._.x"]
+        misses = ["x.x.o", "o.x.x", "x._.x._.o", "o._.x._.x"]
+        for path in hits + misses:
+            db_path = os.path.join(WHISPER_DIR, path.replace(".", os.sep))
+            if not os.path.exists(os.path.dirname(db_path)):
+                os.makedirs(os.path.dirname(db_path))
+            whisper.create(db_path + '.wsp', [(1, 60)])
+
+        paths = [node.path for node in store.find(query, local=True)]
+        for hit in hits:
+            self.assertIn(hit, paths)
+        for miss in misses:
+            self.assertNotIn(miss, paths)
+
+    def test_multiple_globstars(self):
+        store = app.config['GRAPHITE']['store']
+        query = "y.**.y.**.y"
+        hits = [
+            "y.y.y", "y._.y.y", "y.y._.y", "y._.y._.y",
+            "y._._.y.y", "y.y._._.y"
+        ]
+        misses = [
+            "y.o.y", "o.y.y", "y.y.o", "o.y.y.y",  "y.y.y.o",
+            "o._.y._.y", "y._.o._.y", "y._.y._.o"
+        ]
+        for path in hits + misses:
+            db_path = os.path.join(WHISPER_DIR, path.replace(".", os.sep))
+            if not os.path.exists(os.path.dirname(db_path)):
+                os.makedirs(os.path.dirname(db_path))
+            whisper.create(db_path + '.wsp', [(1, 60)])
+
+        paths = [node.path for node in store.find(query, local=True)]
+        for hit in hits:
+            self.assertIn(hit, paths)
+        for miss in misses:
+            self.assertNotIn(miss, paths)
+
+    def test_terminal_globstar(self):
+        store = app.config['GRAPHITE']['store']
+        query = "z.**"
+        hits = ["z._", "z._._", "z._._._"]
+        misses = ["z", "o._", "o.z._", "o._.z"]
+        for path in hits + misses:
+            db_path = os.path.join(WHISPER_DIR, path.replace(".", os.sep))
+            if not os.path.exists(os.path.dirname(db_path)):
+                os.makedirs(os.path.dirname(db_path))
+            whisper.create(db_path + '.wsp', [(1, 60)])
+
+        paths = [node.path for node in store.find(query, local=True)]
+        for hit in hits:
+            self.assertIn(hit, paths)
+        for miss in misses:
+            self.assertNotIn(miss, paths)

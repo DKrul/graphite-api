@@ -13,6 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License."""
 import calendar
 import hashlib
+
 import pytz
 
 from flask import request
@@ -69,6 +70,8 @@ class RequestParams(object):
             keys.update(request.form.keys())
         keys.update(request.args.keys())
         return keys
+
+
 RequestParams = RequestParams()
 
 

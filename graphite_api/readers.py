@@ -1,4 +1,8 @@
+from structlog import get_logger
+
 from .intervals import IntervalSet
+
+logger = get_logger()
 
 
 class MultiReader(object):
@@ -13,9 +17,16 @@ class MultiReader(object):
             interval_sets.extend(node.intervals.intervals)
         return IntervalSet(sorted(interval_sets))
 
-    def fetch(self, startTime, endTime):
+    def fetch(self, startTime, endTime, now=None, requestContext=None):
         # Start the fetch on each node
-        results = [n.fetch(startTime, endTime) for n in self.nodes]
+        results = []
+
+        for node in self.nodes:
+            try:
+                results.append(node.fetch(startTime, endTime, now,
+                                          requestContext))
+            except Exception:
+                logger.error("fetch error", exc_info=True)
 
         data = None
         for r in filter(None, results):

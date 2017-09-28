@@ -71,8 +71,12 @@ class RenderFunctionDocumenter(autodoc.FunctionDocumenter):
             return re.sub('requestContext, ', '', args)
 
 
+suppress_warnings = ['app.add_directive']
+
+
 def setup(app):
     app.add_autodocumenter(RenderFunctionDocumenter)
+
 
 add_module_names = False
 
@@ -96,6 +100,7 @@ class Mock(object):
             return mockType
         else:
             return Mock()
+
 
 for mod_name in ['cairocffi']:
     sys.modules[mod_name] = Mock()

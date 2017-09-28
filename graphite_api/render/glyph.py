@@ -12,16 +12,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License."""
 
-import cairocffi as cairo
 import itertools
 import json
 import math
-import pytz
 import re
-import six
-
 from datetime import datetime, timedelta
 from io import BytesIO
+
+import cairocffi as cairo
+import pytz
+import six
 from six.moves import range
 from six.moves.urllib.parse import unquote_plus
 
@@ -79,18 +79,6 @@ DAY = HOUR * 24
 WEEK = DAY * 7
 MONTH = DAY * 31
 YEAR = DAY * 365
-
-# Set a flag to indicate whether the '%l' option can be used safely.
-# On Windows, in particular the %l option in strftime is not supported.
-# On Linux, the %l option can also fail silently.
-# (It is not one of the documented Python formatters).
-try:
-    if datetime.now().strftime("%a %l%p"):
-        percent_l_supported = True
-    else:
-        percent_l_supported = False
-except ValueError:
-    percent_l_supported = False
 
 xAxisConfigs = (
     dict(seconds=0.00,
@@ -199,7 +187,7 @@ xAxisConfigs = (
          majorGridStep=4,
          labelUnit=HOUR,
          labelStep=4,
-         format=percent_l_supported and "%a %l%p" or "%a %I%p",
+         format="%a %H:%M",
          maxInterval=6*DAY),
     dict(seconds=255,
          minorGridUnit=HOUR,
@@ -208,7 +196,7 @@ xAxisConfigs = (
          majorGridStep=12,
          labelUnit=HOUR,
          labelStep=12,
-         format=percent_l_supported and "%m/%d %l%p" or "%m/%d %I%p",
+         format="%m/%d %H:%M",
          maxInterval=10*DAY),
     dict(seconds=600,
          minorGridUnit=HOUR,
@@ -820,7 +808,7 @@ class Graph(object):
     def getExtents(self, text=None):
         F = self.ctx.font_extents()
         extents = {'maxHeight': F[2], 'maxAscent': F[0], 'maxDescent': F[1]}
-        if text:
+        if text is not None:
             T = self.ctx.text_extents(text)
             extents['width'] = T[4]
             extents['height'] = T[3]
@@ -922,8 +910,8 @@ class Graph(object):
             numberOfLines = max(len(elements) - numRight, numRight)
             columns = math.floor(columns / 2.0)
             columns = max(columns, 1)
-            legendHeight = max(
-                1, (numberOfLines / columns)) * (lineHeight + padding)
+            legendHeight = (
+                max(1, (numberOfLines / columns)) * lineHeight) + padding
             # scoot the drawing area up to fit the legend
             self.area['ymax'] -= legendHeight
             self.ctx.set_line_width(1.0)
@@ -968,7 +956,7 @@ class Graph(object):
             columns = math.floor(self.width / labelWidth)
             columns = max(columns, 1)
             numberOfLines = math.ceil(float(len(elements)) / columns)
-            legendHeight = numberOfLines * (lineHeight + padding)
+            legendHeight = (numberOfLines * lineHeight) + padding
             # scoot the drawing area up to fit the legend
             self.area['ymax'] -= legendHeight
             self.ctx.set_line_width(1.0)
@@ -1128,7 +1116,7 @@ class LineGraph(Graph):
         'yStepRight', 'rightWidth', 'rightColor', 'rightDashed', 'leftWidth',
         'leftColor', 'leftDashed', 'xFormat', 'minorY', 'hideYAxis',
         'hideXAxis', 'uniqueLegend', 'vtitleRight', 'yDivisors',
-        'connectedLimit')
+        'connectedLimit', 'hideNullFromLegend')
     validLineModes = ('staircase', 'slope', 'connected')
     validAreaModes = ('none', 'first', 'all', 'stacked')
     validPieModes = ('maximum', 'minimum', 'average')
@@ -1187,8 +1175,8 @@ class LineGraph(Graph):
         if 'yUnitSystem' not in params:
             params['yUnitSystem'] = 'si'
         else:
-            params['yUnitSystem'] = str(params['yUnitSystem']).lower()
-            if params['yUnitSystem'] not in UnitSystems.keys():
+            params['yUnitSystem'] = force_text(params['yUnitSystem']).lower()
+            if params['yUnitSystem'] not in UnitSystems:
                 params['yUnitSystem'] = 'si'
 
         self.params = params
@@ -1202,6 +1190,7 @@ class LineGraph(Graph):
         # from the max, instead of adding to the minimum
         if self.params.get('yAxisSide') == 'right':
             self.margin = self.width
+
         # Now to setup our LineGraph specific options
         self.lineWidth = float(params.get('lineWidth', 1.2))
         self.lineMode = params.get('lineMode', 'slope').lower()
@@ -1252,15 +1241,21 @@ class LineGraph(Graph):
         if params.get('vtitle'):
             self.drawVTitle(force_text(params['vtitle']))
         if self.secondYAxis and params.get('vtitleRight'):
-            self.drawVTitle(str(params['vtitleRight']), rightAlign=True)
+            self.drawVTitle(force_text(params['vtitleRight']), rightAlign=True)
         self.setFont()
 
         if not params.get('hideLegend', len(self.data) > 10):
-            elements = [
-                (series.name, series.color,
-                 series.options.get('secondYAxis')) for series in self.data
-                if series.name]
-            self.drawLegend(elements, params.get('uniqueLegend', False))
+            elements = []
+            hideNull = params.get('hideNullFromLegend', False)
+            for series in self.data:
+                if series.name:
+                    if not(hideNull and all(v is None for v in list(series))):
+                        elements.append((
+                            unquote_plus(series.name),
+                            series.color,
+                            series.options.get('secondYAxis')))
+            if len(elements) > 0:
+                self.drawLegend(elements, params.get('uniqueLegend', False))
 
         # Setup axes, labels, and grid
         # First we adjust the drawing area size to fit X-axis labels
@@ -1618,7 +1613,7 @@ class LineGraph(Graph):
 
             # return to the original line width
             self.ctx.set_line_width(originalWidth)
-            if 'dash' in series.options:
+            if 'dashed' in series.options:
                 # if we changed the dash setting before, change it back now
                 if dash:
                     self.ctx.set_dash(dash, 1)
@@ -1675,21 +1670,6 @@ class LineGraph(Graph):
                     numberOfPixels * pointsPerPixel) / numberOfDataPoints
             else:
                 series.xStep = bestXStep
-
-    def _adjustLimits(self, minValue, maxValue, minName, maxName, limitName):
-        if maxName in self.params and self.params[maxName] != 'max':
-            maxValue = self.params[maxName]
-
-        if limitName in self.params and self.params[limitName] < maxValue:
-            maxValue = self.params[limitName]
-
-        if minName in self.params:
-            minValue = self.params[minName]
-
-        if maxValue <= minValue:
-            maxValue = minValue + 1
-
-        return (minValue, maxValue)
 
     def setupYAxis(self):
         drawNullAsZero = self.params.get('drawNullAsZero')
@@ -2143,7 +2123,7 @@ class PieGraph(Graph):
                 ):
                     label = "%.2f" % slice['value']
                 else:
-                    label = str(int(slice['value']))
+                    label = force_text(int(slice['value']))
             theta = slice['midAngle']
             x = self.x0 + (self.radius / 2.0 * math.cos(theta))
             y = self.y0 + (self.radius / 2.0 * math.sin(theta))
@@ -2177,14 +2157,12 @@ def safeMin(args):
     args = list(safeArgs(args))
     if args:
         return min(args)
-    return 0
 
 
 def safeMax(args):
     args = list(safeArgs(args))
     if args:
         return max(args)
-    return 0
 
 
 def safeSum(values):
@@ -2238,7 +2216,7 @@ def condition(value, size, step):
         return abs(value) >= size and step >= size
 
 
-def format_units(v, step=None, system="si"):
+def format_units(v, step=None, system="si", units=None):
     """Format the given value in standardized units.
 
     ``system`` is either 'binary' or 'si'
@@ -2248,18 +2226,24 @@ def format_units(v, step=None, system="si"):
         http://en.wikipedia.org/wiki/Binary_prefix
     """
     if v is None:
-        return 0, ""
+        return 0, ''
 
     for prefix, size in UnitSystems[system]:
         if condition(v, size, step):
             v2 = v / size
             if v2 - math.floor(v2) < 0.00000000001 and v > 1:
                 v2 = float(math.floor(v2))
+            if units:
+                prefix = "%s%s" % (prefix, units)
             return v2, prefix
 
     if v - math.floor(v) < 0.00000000001 and v > 1:
         v = float(math.floor(v))
-    return v, ""
+    if units:
+        prefix = units
+    else:
+        prefix = ''
+    return v, prefix
 
 
 def find_x_times(start_dt, unit, step):

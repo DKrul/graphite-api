@@ -80,7 +80,7 @@ class glyphStandaloneFunctionTest(TestCase):
             glyph.safeMin(1)
 
     def test_safeMin_empty_string(self):
-        self.assertEqual(glyph.safeMin(''), 0)
+        self.assertEqual(glyph.safeMin(''), None)
 
     def test_safeMin_list_with_string(self):
         with self.assertRaises(TypeError):
@@ -92,6 +92,11 @@ class glyphStandaloneFunctionTest(TestCase):
     def test_safeMin_list_with_nan(self):
         self.assertEqual(glyph.safeMin([1, 5.1, 6, float('Nan')]), 1)
 
+    # Testing getExtents()
+    def test_getExtents_empty_string(self):
+        extents = glyph.LineGraph(data=[]).getExtents('')
+        self.assertEqual(extents['width'], 0.0)
+
     # Testing safeMax()
     def test_safeMax_None(self):
         with self.assertRaises(TypeError):
@@ -102,7 +107,7 @@ class glyphStandaloneFunctionTest(TestCase):
             glyph.safeMax(1)
 
     def test_safeMax_empty_string(self):
-        self.assertEqual(glyph.safeMax(''), 0)
+        self.assertEqual(glyph.safeMax(''), None)
 
     def test_safeMax_list_with_string(self):
         with self.assertRaises(TypeError):
@@ -148,7 +153,7 @@ class glyphStandaloneFunctionTest(TestCase):
         self.assertEqual(glyph.dataLimits(seriesList), (1, 100))
 
     def test_dataLimits_empty_list(self):
-        self.assertEqual(glyph.dataLimits([]), (0.0, 0.0))
+        self.assertEqual(glyph.dataLimits([]), (0.0, 1.0))
 
     def test_dataLimits_drawNull(self):
         seriesList = self._generate_series_list()
@@ -216,44 +221,87 @@ class glyphStandaloneFunctionTest(TestCase):
 
     # Testing of format_units
     def test_format_units_defaults(self):
-        # Tests (input, result, 'Error String')
+        # Tests (input, result, prefix, 'Error String')
         tests = [
-            (1, 1, 'format_units(1) != 1'),
-            (1.0, 1.0, 'format_units(1.0) != 1.0'),
-            (0.001, 0.001, 'format_units(0.001) != 0.001')
+            (1, 1, '', 'format_units(1) != 1'),
+            (1.0, 1.0, '', 'format_units(1.0) != 1.0'),
+            (0.001, 0.001, '', 'format_units(0.001) != 0.001'),
+            (1000, 1.0, 'K', 'format_units(1000) != 1.0 K'),
+            (1000000, 1.0, 'M', 'format_units(1000000) != 1.0 M'),
         ]
-        for (t, r, e) in tests:
-            self.assertEqual(glyph.format_units(t), (r, ''), e)
+        for (t, r, p, e) in tests:
+            self.assertEqual(glyph.format_units(t), (r, p), e)
 
     def test_format_units_val_None_defaults(self):
-        # Tests (input, result, 'Error String')
+        # Tests (input, result, prefix, 'Error String')
         tests = [
-            (1, 1, 'format_units(1, None) != 1'),
-            (1.0, 1.0, 'format_units(1.0, None) != 1.0'),
-            (0.001, 0.001, 'format_units(0.001, None) != 0.001')
+            (1, 1, '', 'format_units(1, None) != 1'),
+            (1.0, 1.0, '', 'format_units(1.0, None) != 1.0'),
+            (0.001, 0.001, '', 'format_units(0.001, None) != 0.001'),
+            (1000, 1.0, 'K', 'format_units(1000, None) != 1.0 K'),
+            (1000000, 1.0, 'M', 'format_units(1000000, None) != 1.0 M'),
         ]
-        for (t, r, e) in tests:
-            self.assertEqual(glyph.format_units(t, None), (r, ''), e)
+        for (t, r, p, e) in tests:
+            self.assertEqual(glyph.format_units(t, None), (r, p), e)
 
     def test_format_units_v_None_si(self):
-        # Tests (input, result, 'Error String')
+        # Tests (input, result, prefix, 'Error String')
         tests = [
-            (1, 1, 'format_units(1, None, \'si\') != 1'),
-            (1.0, 1.0, 'format_units(1.0, None, \'si\') != 1.0'),
-            (0.001, 0.001, 'format_units(0.001, None, \'si\') != 0.001')
+            (1, 1, '', 'format_units(1, None, \'si\') != 1'),
+            (1.0, 1.0, '', 'format_units(1.0, None, \'si\') != 1.0'),
+            (0.001, 0.001, '', 'format_units(0.001, None, \'si\') != 0.001'),
+            (1000, 1.0, 'K', 'format_units(1000, None, \'si\') != 1.0 K'),
+            (1000000, 1.0, 'M',
+             'format_units(1000000, None, \'si\') != 1.0 M'),
         ]
-        for (t, r, e) in tests:
-            self.assertEqual(glyph.format_units(t, None, 'si'), (r, ''), e)
+        for (t, r, p, e) in tests:
+            self.assertEqual(glyph.format_units(t, None, 'si'), (r, p), e)
+
+    def test_format_units_v_None_si_units(self):
+        # Tests (input, result, prefix, 'Error String')
+        tests = [
+            (1, 1, 'b', 'format_units(1, None, \'si\', \'b\') != 1'),
+            (1.0, 1.0, 'b', 'format_units(1.0, None, \'si\', \'b\') != 1.0'),
+            (0.001, 0.001, 'b',
+             'format_units(0.001, None, \'si\', \'b\') != 0.001'),
+            (1000, 1.0, 'Kb',
+             'format_units(1000, None, \'si\', \'b\') != 1.0 Kb'),
+            (1000000, 1.0, 'Mb',
+             'format_units(1000000, None, \'si\', \'b\') != 1.0 Mb'),
+        ]
+        for (t, r, p, e) in tests:
+            self.assertEqual(glyph.format_units(t, None, 'si', 'b'), (r, p), e)
 
     def test_format_units_v_step_si(self):
-        # Tests (input, step, result, 'Error String')
+        # Tests (input, step, result, prefix, 'Error String')
         tests = [
-            (1, 100, 1, 'format_units(1, 100, \'si\') != 1'),
-            (1.0, 100, 1.0, 'format_units(1.0, 100, \'si\') != 1.0'),
-            (0.001, 100, 0.001, 'format_units(0.001, 100, \'si\') != 0.001')
+            (1, 100, 1, '', 'format_units(1, 100, \'si\') != 1'),
+            (1.0, 100, 1.0, '', 'format_units(1.0, 100, \'si\') != 1.0'),
+            (0.001, 100, 0.001, '',
+             'format_units(0.001, 100, \'si\') != 0.001'),
+            (1000, 100, 1000.0, '',
+             'format_units(1000, 100, \'si\') != 1000.0'),
+            (1000000, 100, 1000000.0, '',
+             'format_units(1000000, 100, \'si\') != 1000000.0'),
         ]
-        for (t, s, r, e) in tests:
-            self.assertEqual(glyph.format_units(t, s, 'si'), (r, ''), e)
+        for (t, s, r, p, e) in tests:
+            self.assertEqual(glyph.format_units(t, s, 'si'), (r, p), e)
+
+    def test_format_units_v_step_si_units(self):
+        # Tests (input, step, result, prefix, 'Error String')
+        tests = [
+            (1, 100, 1, 'b', 'format_units(1, 100, \'si\', \'b\') != 1'),
+            (1.0, 100, 1.0, 'b',
+             'format_units(1.0, 100, \'si\', \'b\') != 1.0'),
+            (0.001, 100, 0.001, 'b',
+             'format_units(0.001, 100, \'si\', \'b\') != 0.001'),
+            (1000, 100, 1000.0, 'b',
+             'format_units(1000, 100, \'si\', \'b\') != 1000.0'),
+            (1000000, 100, 1000000.0, 'b',
+             'format_units(1000000, 100, \'si\', \'b\') != 1000000.0'),
+        ]
+        for (t, s, r, p, e) in tests:
+            self.assertEqual(glyph.format_units(t, s, 'si', 'b'), (r, p), e)
 
     # Testing of find_x_times()
     def test_find_x_times_SEC(self):
